@@ -11,6 +11,8 @@ type Node struct {
 	conn     net.Conn
 }
 
+type Nodes []Node
+
 func NewNode(name, ip string, port int) Node {
 	node := new(Node)
 	node.Ip = ip

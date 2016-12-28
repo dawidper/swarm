@@ -10,8 +10,6 @@ import (
 	"strings"
 )
 
-type Nodes []Node
-
 var (
 	LocalNode  Node
 	RemoteNode *Node
@@ -24,13 +22,12 @@ func (remote Node) HandleFail() {
 func (local *Node) Connect(remote Node) {
 	dial, err := net.Dial("tcp", remote.Ip+":"+strconv.Itoa(remote.Port))
 	println("Connecting to " + remote.Ip + ":" + strconv.Itoa(remote.Port))
-	fmt.Fprintf(dial, "%s", getNodeName())
-	defer dial.Close()
 	if err != nil {
 		println(err.Error())
 		return
 	}
-	dial.Write([]byte("EHLO"))
+
+	dial.Write([]byte(remote.Name + "\n"))
 	RemoteNode = &remote
 	RemoteNode.conn = dial
 
@@ -54,19 +51,21 @@ func (local *Node) AddChild(remote Node) {
 		remote.conn.Write(enc)
 	}
 	LocalNode.Children = append(LocalNode.Children, remote)
+	go remote.WaitFormessage()
 }
 
 func (node *Node) WaitFormessage() {
+	println("Waiting for message")
 	for {
 		message, err := bufio.NewReader(node.conn).ReadBytes('\n')
-		println(node.Name + " coś napisał")
 		if err != nil {
-			if node.Name == RemoteNode.Name {
+			if node.Name == string(message) {
 				RemoteNode.HandleFail()
 			}
+			go LocalNode.ResendMessage(message, *node)
+			go LocalNode.HandleMessage(message, *node)
 		}
-		go LocalNode.ResendMessage(message, *node)
-		go LocalNode.HandleMessage(message, *node)
+
 	}
 }
 
@@ -85,17 +84,17 @@ func (node *Node) ResendMessage(m []byte, sender Node) {
 }
 
 func (node *Node) HandleMessage(text []byte, sender Node) {
-	fmt.Println(text)
 	var message Message
 	err := json.Unmarshal(text, message)
 	if err != nil {
 		Received = append(Received, text)
 		return
 	}
+	fmt.Println("Message from", sender.Name)
 	switch message.Type {
 	case "system":
 		{
-			go LocalNode.HandleSystemMessage(message)
+			LocalNode.HandleSystemMessage(message)
 		}
 	case "regular":
 		{
@@ -145,22 +144,22 @@ func (local *Node) HandleNewConnection(conn net.Conn) {
 	local.AddChild(*remote)
 }
 
-func (local *Node) Start() {
+func (local *Node) Start(server_name, server_ip string, server_port int) {
 	LocalNode = *local
 	l, err := net.Listen("tcp", getListen())
 	if err != nil {
 		fmt.Println("Error listening:", err.Error())
 		os.Exit(1)
 	}
-	defer l.Close()
 
 	println("Listening on " + getListen() + " as " + getNodeName())
 	if os.Getenv("server_ip") != "" {
-		port, _ := strconv.Atoi(os.Getenv("server_port"))
-		remote := NewNode(os.Getenv("server_name"), os.Getenv("server_ip"), port)
+
+		remote := NewNode(server_name, server_ip, server_port)
 		LocalNode.Connect(remote)
 	}
 	for {
+		println("STARTING LISTENER")
 		conn, err := l.Accept()
 		if err != nil {
 			fmt.Println("Error accepting: ", err.Error())
@@ -171,7 +170,7 @@ func (local *Node) Start() {
 }
 
 func getListen() string {
-	return os.Getenv("local_ip") + ":" + os.Getenv("local_port")
+	return os.Getenv("local_ip") + ":" + strconv.Itoa(LocalNode.Port)
 }
 
 func getListenPort() int {

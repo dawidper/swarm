@@ -36,20 +36,25 @@ func (n *Node) Write(message []byte, title ...string) bool {
 	js, err := json.Marshal(m)
 
 	if err != nil {
+		print(err.Error())
 		return false
 	}
 
-	for _, value := range LocalNode.Children {
+	for key, value := range LocalNode.Children {
 		_, err = value.conn.Write(js)
 		if err != nil {
-			return false
+			println(err.Error())
+			LocalNode.Children = append(LocalNode.Children[:key], LocalNode.Children[key+1:]...)
 		}
 	}
 	if RemoteNode != nil {
 		_, err = RemoteNode.conn.Write(js)
 	}
 
+	LocalNode.HandleMessage(js, LocalNode)
+
 	if err != nil {
+		println(err.Error())
 		return false
 	}
 
